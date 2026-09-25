@@ -1,6 +1,7 @@
 // Software mixer with procedurally synthesized sounds (miniaudio is used only as the output device).
 #pragma once
 #include <memory>
+#include <string>
 
 #include "core/math.h"
 
@@ -35,6 +36,9 @@ public:
     void setCategoryVolume(int category, float volume);
     void setSpatial(bool headphones3D);
     void stopAll();
+
+    // Offline check without a window or device: writes every synthesized sound and a few mixer renders as WAV files.
+    static bool dumpSounds(const std::string& dir);
 
     struct Impl;
 
