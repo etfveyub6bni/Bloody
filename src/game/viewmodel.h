@@ -21,7 +21,8 @@ struct ViewmodelParams {
     bool onGround = true;
     float crouch = 0;
     float yawDelta = 0, pitchDelta = 0;
-    vec3 userOffset{0, 0, 0};
+    vec3 userOffset{0, 0, 0};  // view space: forward, left, up
+    float bob = 1.0f;          // walk bob scale
 };
 
 struct ViewmodelState {

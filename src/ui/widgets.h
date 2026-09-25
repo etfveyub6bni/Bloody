@@ -6,6 +6,8 @@
 
 #include "ui/ui.h"
 
+struct Settings;
+
 struct Theme {
     Font* regular = nullptr;
     Font* bold = nullptr;
@@ -32,7 +34,13 @@ const uint32_t red = rgba(226, 70, 64);
 float& widgetAnim(int id);
 uint32_t lerpColor(uint32_t a, uint32_t b, float t);
 bool button(UI& ui, Theme& th, int id, float x, float y, float w, float h, const std::string& label, int style = 0, bool selected = false);
-bool slider(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, float& v, float mn, float mx, const char* fmt);
-bool toggle(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, bool& v);
-bool selector(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, int& idx, const std::vector<std::string>& opts);
+// Setting rows: label on the left, control on the right, content centred in a row of height h (0 = 44 * scale).
+bool slider(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, float& v, float mn, float mx, const char* fmt, float h = 0);
+bool toggle(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, bool& v, float h = 0);
+// `skip` is an option that is shown when current but never reached with the arrows (e.g. "custom").
+bool selector(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, int& idx, const std::vector<std::string>& opts, float h = 0,
+              int skip = -1);
+void valueRow(UI& ui, Theme& th, float x, float y, float w, const std::string& label, const std::string& value, uint32_t col, float h = 0);
 void sectionTitle(UI& ui, Theme& th, float x, float y, const std::string& label);
+// CS2 classic crosshair; extraGap (pixels) widens the gap for the dynamic style.
+void drawCrosshairShape(UI& ui, const Settings& st, float cx, float cy, float scale, float extraGap = 0);

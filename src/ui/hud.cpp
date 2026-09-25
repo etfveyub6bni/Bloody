@@ -14,10 +14,16 @@ std::string timeStr(float secs) {
     return b;
 }
 
+float g_dynGap = 0;  // smoothed dynamic crosshair gap, pixels
+vec2 g_recoilOff(0, 0);  // smoothed follow-recoil offset, pixels
+
 }  // namespace
 
 void App::drawHud(float dt) {
-    float s = theme.s, W = (float)ui.width, H = (float)ui.height;
+    // HUD elements follow the HUD scale; crosshair, scope and scoreboard keep the menu scale `ms`.
+    float ms = theme.s, s = ms * clampf(settings.hudScale, 0.8f, 1.2f), W = (float)ui.width, H = (float)ui.height;
+    const CrosshairColor& hudCc = kHudColors[std::max(0, std::min(settings.hudColor, 4))];
+    const uint32_t hudCol = rgba(hudCc.r, hudCc.g, hudCc.b);
     Player& me = game.localPlayer();
     const Player* view = &me;
     if (!me.alive && spectateTarget() >= 0) view = &game.players[spectateTarget()];
@@ -29,16 +35,34 @@ void App::drawHud(float dt) {
         float r = H * 0.47f, R = W;
         uint32_t black = rgba(0, 0, 0, 255);
         ui.border(cx - r - R, cy - r - R, (r + R) * 2, (r + R) * 2, black, r + R, R);
-        ui.border(cx - r, cy - r, r * 2, r * 2, rgba(0, 0, 0, 150), r, 26 * s);
+        ui.border(cx - r, cy - r, r * 2, r * 2, rgba(0, 0, 0, 150), r, 26 * ms);
         ui.rect(0, cy - 0.5f, W, 1.2f, black);
         ui.rect(cx - 0.5f, 0, 1.2f, H, black);
-        ui.rect(cx - r, cy - 1.5f * s, r * 2, 3 * s, rgba(0, 0, 0, 220));
-        ui.rect(cx - 1.5f * s, cy - r, 3 * s, r * 2, rgba(0, 0, 0, 220));
+        ui.rect(cx - r, cy - 1.5f * ms, r * 2, 3 * ms, rgba(0, 0, 0, 220));
+        ui.rect(cx - 1.5f * ms, cy - r, 3 * ms, r * 2, rgba(0, 0, 0, 220));
     }
     if (view == &me && me.alive && me.zoom == 0 && !paused && !buyMenuOpen) {
         const WeaponDef& d = weaponDef(me.active);
-        if (d.cls != WC_SNIPER) drawCrosshair(cx, cy, s);
-        else ui.circle(cx, cy, 1.5f * s, rgba(255, 255, 255, 200));
+        float pxPerTan = H * 0.5f / std::tan(lastCam.fovY * 0.5f);  // degrees -> pixels via tan(angle) * pxPerTan
+        float gapTarget = 0;
+        if (settings.chStyle == 1) {
+            // Dynamic: widen by the movement, air and firing inaccuracy terms used by Game::fire.
+            float speed = std::sqrt(me.mv.velocity.x * me.mv.velocity.x + me.mv.velocity.y * me.mv.velocity.y);
+            float moveSpread = d.spreadMove > 0 ? d.spreadMove : 4.0f, airSpread = d.spreadAir > 0 ? d.spreadAir : 8.0f;
+            float inacc = moveSpread * saturate(speed / std::max(1.0f, d.maxSpeed)) + (me.mv.onGround ? 0.0f : airSpread) + me.fireInacc;
+            inacc += saturate(1.0f - (game.time - me.lastShot) / 0.2f);  // brief kick per shot
+            gapTarget = std::min(std::tan(std::min(inacc, 60.0f) * kDeg) * pxPerTan * 0.5f, 70 * ms);
+        }
+        g_dynGap = damp(g_dynGap, gapTarget, 16.0f, dt);
+        vec2 offTarget(0, 0);
+        if (settings.chFollowRecoil) {
+            // Next bullet (Game::fire aims at view + pattern offset) relative to the kicked camera (view + recoil).
+            vec2 rel = recoilOffset(d.recoilPattern, (int)(me.sprayIndex + 0.5f)) * d.recoilScale - me.recoil;
+            offTarget = vec2(std::tan(rel.x * kDeg), -std::tan(rel.y * kDeg)) * pxPerTan;
+        }
+        g_recoilOff = vec2(damp(g_recoilOff.x, offTarget.x, 25.0f, dt), damp(g_recoilOff.y, offTarget.y, 25.0f, dt));
+        if (d.cls != WC_SNIPER) drawCrosshairShape(ui, settings, cx + g_recoilOff.x, cy + g_recoilOff.y, ms, g_dynGap);
+        else ui.circle(cx, cy, 1.5f * ms, rgba(255, 255, 255, 200));
     }
 
     // Damage direction indicators.
@@ -62,7 +86,7 @@ void App::drawHud(float dt) {
         float x = 28 * s, y = H - 92 * s, w = 390 * s, h = 64 * s;
         ui.glass(x, y, w, h, rgba(10, 12, 16, 150), 8 * s);
         bool low = view->health <= 20;
-        uint32_t hc = low ? rgba(240, 70, 60) : colors::text;
+        uint32_t hc = low ? rgba(240, 70, 60) : hudCol;
         ui.rect(x + 18 * s, y + 28 * s, 24 * s, 8 * s, hc, 1.5f * s);
         ui.rect(x + 26 * s, y + 20 * s, 8 * s, 24 * s, hc, 1.5f * s);
         char b[16];
@@ -72,23 +96,23 @@ void App::drawHud(float dt) {
         ui.rect(x + 130 * s, y + 42 * s, 60 * s * saturate(view->health / 100.0f), 4 * s, hc, 2 * s);
         float ax = x + 214 * s;
         ui.rect(ax, y + 18 * s, 22 * s, 26 * s, rgba(255, 255, 255, 30), 6 * s);
-        ui.border(ax, y + 18 * s, 22 * s, 26 * s, colors::text, 6 * s, 2 * s);
-        if (view->helmet) ui.rect(ax + 5 * s, y + 10 * s, 12 * s, 6 * s, colors::text, 3 * s);
+        ui.border(ax, y + 18 * s, 22 * s, 26 * s, hudCol, 6 * s, 2 * s);
+        if (view->helmet) ui.rect(ax + 5 * s, y + 10 * s, 12 * s, 6 * s, hudCol, 3 * s);
         std::snprintf(b, sizeof(b), "%d", view->armor);
-        ui.textShadowed(fBold, b, ax + 34 * s, y + 4 * s, 48 * s, colors::text);
+        ui.textShadowed(fBold, b, ax + 34 * s, y + 4 * s, 48 * s, hudCol);
     }
 
     // Ammo and weapon.
     if (view->alive && view->active != W_NONE) {
         const WeaponDef& d = weaponDef(view->active);
         float w = 390 * s, h = 64 * s, x = W - 28 * s - w, y = H - 92 * s;
-        drawIcon(view->active, W - 40 * s, y - 60 * s, 46 * s, rgba(255, 255, 255, 210), true, 200 * s);
+        drawIcon(view->active, W - 40 * s, y - 60 * s, 46 * s, withAlpha(hudCol, 0.82f), true, 200 * s);
         ui.glass(x, y, w, h, rgba(10, 12, 16, 150), 8 * s);
         if (d.magSize > 0 && d.cls != WC_GRENADE) {
             char b[32];
             bool inf = game.cfg.mode == MODE_PRACTICE && !view->bot;
             std::snprintf(b, sizeof(b), "%d", view->clip[view->active]);
-            uint32_t cc = view->clip[view->active] <= d.magSize / 5 ? rgba(240, 90, 70) : colors::text;
+            uint32_t cc = view->clip[view->active] <= d.magSize / 5 ? rgba(240, 90, 70) : hudCol;
             float rx = x + w - 30 * s;
             std::string res = inf ? "/ \xE2\x80\x94" : "/ " + std::to_string(view->reserve[view->active]);
             float rw = ui.textWidth(fRegular, res, 30 * s);
@@ -96,7 +120,7 @@ void App::drawHud(float dt) {
             ui.textShadowed(fBold, b, rx - rw - 10 * s, y + 4 * s, 48 * s, cc, ALIGN_RIGHT);
             for (int i = 0; i < 3; i++) ui.rect(x + 24 * s + i * 11 * s, y + 18 * s, 6 * s, 28 * s, rgba(236, 200, 120, 220), 3 * s);
         } else {
-            ui.textShadowed(fBold, d.name, x + w - 30 * s, y + 14 * s, 32 * s, colors::text, ALIGN_RIGHT);
+            ui.textShadowed(fBold, d.name, x + w - 30 * s, y + 14 * s, 32 * s, hudCol, ALIGN_RIGHT);
         }
     }
 
@@ -106,7 +130,7 @@ void App::drawHud(float dt) {
         ui.glass(tx, ty, tw, th, rgba(10, 12, 16, 170), 6 * s);
         float left = game.roundTimeLeft();
         bool bomb = game.bombPlanted && !game.bombDefused && !game.bombExploded;
-        uint32_t tc = (bomb || (left < 10 && game.phase == PH_LIVE)) ? rgba(240, 80, 70) : colors::text;
+        uint32_t tc = (bomb || (left < 10 && game.phase == PH_LIVE)) ? rgba(240, 80, 70) : hudCol;
         if (bomb) {
             bool blink = std::fmod(game.time, 1.0f) < 0.5f;
             ui.rect(tx + 12 * s, ty + 14 * s, 26 * s, 24 * s, blink ? rgba(220, 50, 40) : rgba(120, 30, 25), 4 * s);
@@ -151,9 +175,10 @@ void App::drawHud(float dt) {
         ui.shadow(rx, ry, rs, rs, 12 * s, 16 * s, rgba(0, 0, 0, 120));
         ui.rect(rx, ry, rs, rs, rgba(8, 10, 14, 220), 12 * s);
         vec3 P = lastCam.pos;
-        float yaw = std::atan2(lastCam.fwd.y, lastCam.fwd.x);
+        float viewYawRad = std::atan2(lastCam.fwd.y, lastCam.fwd.x);
+        float yaw = settings.radarRotate ? viewYawRad : kPi * 0.5f;  // fixed radar: +Y (north) up
         vec3 f(std::cos(yaw), std::sin(yaw), 0), r(std::sin(yaw), -std::cos(yaw), 0);
-        const float R = 1300.0f;
+        const float R = 1300.0f / clampf(settings.radarZoom, 0.6f, 1.6f);
         vec3 rc = radarCenter[gameMap];
         float rh = radarHalf[gameMap];
         auto toUV = [&](vec3 w) { return vec2((w.x - (rc.x - rh)) / (2 * rh), (w.y - (rc.y - rh)) / (2 * rh)); };
@@ -185,9 +210,11 @@ void App::drawHud(float dt) {
         for (auto& it : game.items)
             if (it.weapon == W_C4 && competitive && me.team == TEAM_T && toScreen(it.pos, sp)) ui.rect(sp.x - 6 * s, sp.y - 5 * s, 12 * s, 10 * s, rgba(240, 160, 40), 2 * s);
         vec2 c(rx + rs * 0.5f, ry + rs * 0.5f);
+        vec3 vf(std::cos(viewYawRad), std::sin(viewYawRad), 0);
+        vec2 dir(dot(vf, r), -dot(vf, f));
         ui.circle(c.x, c.y, 7 * s, rgba(0, 0, 0, 180));
-        ui.circle(c.x, c.y, 5 * s, colors::text);
-        ui.line(c.x, c.y, c.x, c.y - 16 * s, 3 * s, colors::text);
+        ui.circle(c.x, c.y, 5 * s, hudCol);
+        ui.line(c.x, c.y, c.x + dir.x * 16 * s, c.y + dir.y * 16 * s, 3 * s, hudCol);
         if (competitive || view->money > 0) {
             char mb[32];
             std::snprintf(mb, sizeof(mb), "$ %d", view->money);
@@ -299,9 +326,9 @@ void App::drawHud(float dt) {
         if (competitive) std::snprintf(b, sizeof(b), "Спецназ %d : %d Террористы", game.scoreCT, game.scoreT);
         else std::snprintf(b, sizeof(b), "%s", game.roundMessage.c_str());
         ui.text(fRegular, b, cx, by + bh - 40 * s, 20 * s, colors::dim, ALIGN_CENTER);
-        if (matchEnd) drawScoreboard(cx - 560 * s, by + bh + 24 * s, 1120 * s);
+        if (matchEnd) drawScoreboard(cx - 560 * ms, by + bh + 24 * s, 1120 * ms);
     }
-    if (win.input.down(GLFW_KEY_TAB) && game.phase != PH_MATCH_END && !paused) drawScoreboard(cx - 560 * s, 170 * s, 1120 * s);
+    if (win.input.down(GLFW_KEY_TAB) && game.phase != PH_MATCH_END && !paused) drawScoreboard(cx - 560 * ms, 170 * ms, 1120 * ms);
     if (settings.showFps) {
         char b[32];
         std::snprintf(b, sizeof(b), "%.0f FPS", fps);
@@ -454,5 +481,9 @@ void App::drawPauseMenu() {
     if (button(ui, theme, 801, bx, py + 240 * s, bw, bh, "НАСТРОЙКИ", 0, pauseSettings)) pauseSettings = !pauseSettings;
     if (button(ui, theme, 802, bx, py + 320 * s, bw, bh, "ВЫЙТИ В ЛОББИ", 0)) quitToLobby();
     if (button(ui, theme, 803, bx, py + 400 * s, bw, bh, "ВЫЙТИ ИЗ ИГРЫ", 0)) quit = true;
-    if (pauseSettings) drawSettingsPanel(px + pw + 24 * s, py, 860 * s, 860 * s);
+    if (shot.enabled && shot.tab == 2) pauseSettings = true;  // automation: --tab 2 opens settings, as in the lobby
+    if (pauseSettings) {
+        float sx = px + pw + 24 * s;
+        drawSettingsPanel(sx, py, std::min(1380 * s, W - sx - 40 * s), std::min(900 * s, H - py - 40 * s));
+    }
 }

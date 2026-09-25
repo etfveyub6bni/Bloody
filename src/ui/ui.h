@@ -59,12 +59,23 @@ public:
     float text(Font& f, const std::string& s, float x, float y, float size, uint32_t col, int align = ALIGN_LEFT, float spacing = 0, float bold = 0);
     float textShadowed(Font& f, const std::string& s, float x, float y, float size, uint32_t col, int align = ALIGN_LEFT, float spacing = 0);
     float textWidth(Font& f, const std::string& s, float size, float spacing = 0);
+    // Greedy word wrap; '\n' starts a new line. Returns the lines (drawn by textWrapped).
+    std::vector<std::string> wrap(Font& f, const std::string& s, float size, float maxW);
+    // Returns the height used (lines * lineH).
+    float textWrapped(Font& f, const std::string& s, float x, float y, float size, float maxW, uint32_t col, float lineH);
+
+    // Scissor clip in pixels (not nestable). hover() also ignores the mouse outside the clip.
+    void setClip(float x, float y, float w, float h);
+    void clearClip();
 
     // Input for widgets.
     vec2 mouse;
     bool mouseDown = false, mousePressed = false, mouseReleased = false;
     float scroll = 0;
-    bool hover(float x, float y, float w, float h) const { return mouse.x >= x && mouse.x < x + w && mouse.y >= y && mouse.y < y + h; }
+    bool hover(float x, float y, float w, float h) const {
+        if (m_clipOn && !(mouse.x >= m_clip.x && mouse.x < m_clip.x + m_clip.z && mouse.y >= m_clip.y && mouse.y < m_clip.y + m_clip.w)) return false;
+        return mouse.x >= x && mouse.x < x + w && mouse.y >= y && mouse.y < y + h;
+    }
     int width = 0, height = 0;
     float scale = 1;  // UI scale relative to a 1080p reference
     int activeId = 0;
@@ -84,4 +95,6 @@ private:
     Shader m_shader;
     GLuint m_vao = 0, m_vbo = 0, m_white = 0, m_blur = 0, m_curTex = 0;
     std::vector<V> m_verts;
+    bool m_clipOn = false;
+    vec4 m_clip;
 };

@@ -2,17 +2,18 @@
 
 namespace {
 
-const Mat kGunmetal{{0.30f, 0.30f, 0.30f}, 0.6f, 0.2f, 5};
-const Mat kDarkSteel{{0.22f, 0.22f, 0.22f}, 0.58f, 0.25f, 5};
-const Mat kSatin{{0.62f, 0.62f, 0.63f}, 0.30f, 0.95f, 5};
-const Mat kBlade{{0.74f, 0.74f, 0.76f}, 0.22f, 1.0f, 5};
-const Mat kWood{{0.50f, 0.29f, 0.16f}, 0.55f, 0.0f, 1};
-const Mat kGripBrown{{0.24f, 0.15f, 0.09f}, 0.62f, 0.0f, 4};
-const Mat kPolymer{{0.11f, 0.11f, 0.115f}, 0.62f, 0.0f, 4};
-const Mat kPolySmooth{{0.10f, 0.10f, 0.105f}, 0.50f, 0.0f, 0};
-const Mat kAnodized{{0.2f, 0.2f, 0.2f}, 0.6f, 0.15f, 5};
-const Mat kAwpGreen{{0.30f, 0.38f, 0.24f}, 0.62f, 0.0f, 4};
+const Mat kGunmetal{{0.3f, 0.3f, 0.31f}, 0.46f, 0.7f, 5};
+const Mat kDarkSteel{{0.24f, 0.24f, 0.25f}, 0.36f, 0.9f, 5};
+const Mat kSatin{{0.62f, 0.62f, 0.63f}, 0.28f, 1.0f, 10};
+const Mat kBlade{{0.78f, 0.78f, 0.8f}, 0.18f, 1.0f, 10};
+const Mat kWood{{0.46f, 0.25f, 0.13f}, 0.5f, 0.0f, 1};
+const Mat kGripBrown{{0.19f, 0.1f, 0.06f}, 0.5f, 0.0f, 4};
+const Mat kPolymer{{0.1f, 0.1f, 0.105f}, 0.6f, 0.0f, 4};
+const Mat kPolySmooth{{0.1f, 0.1f, 0.105f}, 0.45f, 0.0f, 0};
+const Mat kAnodized{{0.16f, 0.16f, 0.17f}, 0.5f, 0.35f, 5};
+const Mat kAwpGreen{{0.28f, 0.36f, 0.22f}, 0.55f, 0.0f, 4};
 const Mat kLens{{0.05f, 0.08f, 0.10f}, 0.05f, 0.0f, 9};
+const Mat kMagSteel{{0.28f, 0.28f, 0.29f}, 0.48f, 0.75f, 5};
 const Mat kRubber{{0.07f, 0.07f, 0.07f}, 0.85f, 0.0f, 4};
 
 Xform gripFrame(vec3 axisPoint, vec3 fingerDir, vec3 dorsal, vec3 localAxisPoint) {
@@ -40,6 +41,23 @@ FingerPose poseTriggerGrip() {
 FingerPose poseHandguard() {
     return poseFrom({1.05f, 1.15f, 0.75f,  1.10f, 1.20f, 0.75f,  1.12f, 1.15f, 0.75f,  1.12f, 1.10f, 0.70f,
                      0.35f, 0.25f, 0.20f,  0.05f, 0, -0.04f, -0.09f, 0, 0.2f});
+}
+// Support hand under a rifle handguard: fingers wrap the far side, thumb lies forward along the near side.
+FingerPose poseUnderHandguard() {
+    FingerPose p = poseHandguard();
+    for (int f = 0; f < 4; f++) {
+        p.curl[f][0] = 0.95f;
+        p.curl[f][1] = 1.05f;
+        p.curl[f][2] = 0.7f;
+    }
+    p.thumbTwist = 1.7f;
+    p.spread[4] = -0.25f;
+    p.curl[4][0] = 0.45f;
+    return p;
+}
+// Places the support hand below a handguard whose axis passes through `axis` (weapon space).
+Xform supportUnderHandguard(vec3 axis, float drop = 1.35f) {
+    return gripFrame(axis, normalize(vec3(0.55f, -0.8f, 0.25f)), {0, 0.35f, -0.94f}, {2.3f, 0.15f, -drop});
 }
 FingerPose poseSupportPistol() {
     return poseFrom({1.15f, 1.25f, 0.8f,  1.25f, 1.30f, 0.8f,  1.30f, 1.30f, 0.8f,  1.30f, 1.25f, 0.75f,
@@ -73,64 +91,139 @@ std::vector<vec2> magOutline(vec2 top, float R, float arcLen, float depthTop, fl
     return out;
 }
 
+// Band between two offsets across a curved magazine (for ribs); offsets are fractions of the depth (-0.5..0.5).
+std::vector<vec2> magBand(vec2 top, float R, float arcLen, float depthTop, float depthBot, float f0, float f1, float t0, float t1, int n = 10) {
+    std::vector<vec2> a, b;
+    for (int i = 0; i <= n; i++) {
+        float t = lerpf(t0, t1, (float)i / n), phi = (arcLen / R) * t;
+        vec2 c(top.x + R - R * std::cos(phi), top.y - R * std::sin(phi));
+        vec2 nr(std::cos(phi), std::sin(phi));
+        float d = lerpf(depthTop, depthBot, t);
+        a.push_back(c + nr * (d * f0));
+        b.push_back(c + nr * (d * f1));
+    }
+    std::vector<vec2> out(a.begin(), a.end());
+    for (int i = n; i >= 0; i--) out.push_back(b[i]);
+    return out;
+}
+
+void rivet(MeshBuilder& m, vec3 p, float side, float r = 0.085f) {
+    m.sphere(p + vec3(0, side * 0.01f, 0), {r, 0.045f, r}, 10, 5);
+}
+
 void railTeeth(MeshBuilder& m, float x0, float x1, float z, float hw) {
     for (float x = x0; x < x1; x += 0.55f) m.box({x + 0.14f, 0, z}, {0.14f, hw, 0.07f}, 0.02f);
 }
 
 void buildAK(MeshBuilder& m, WeaponModel& w) {
     const float bore = 1.0f;
+    const vec3 Y(0, 1, 0), Z(0, 0, 1);
     m.bone = WB_BODY;
     m.mat = kGunmetal;
-    m.box({-1.2f, 0, 0.2f}, {5.3f, 0.57f, 1.05f}, 0.07f);
-    m.box({-1.45f, 0, 1.42f}, {5.0f, 0.52f, 0.22f}, 0.18f);
-    m.box({-6.55f, 0, 1.35f}, {0.15f, 0.2f, 0.12f}, 0.04f);
-    m.box({5.1f, 0, 0.75f}, {1.1f, 0.5f, 0.75f}, 0.12f);
-    m.box({5.2f, 0, 1.58f}, {0.65f, 0.33f, 0.12f}, 0.05f);
-    m.box({5.75f, 0, 1.73f}, {0.08f, 0.2f, 0.06f}, 0.02f);
-    for (float s : {-1.0f, 1.0f})
-        for (float rx : {-5.2f, -3.9f, 2.6f, 3.4f}) m.sphere({rx, s * 0.575f, -0.45f}, {0.09f, 0.05f, 0.09f}, 8, 5);
+    // Stamped receiver with the magazine well cut into the bottom.
+    m.extrude({{-6.45f, 1.22f}, {-6.45f, -0.25f}, {-5.2f, -0.35f}, {-2.1f, -0.42f}, {-1.3f, -0.85f}, {2.25f, -0.85f},
+               {2.4f, -0.35f}, {3.7f, -0.35f}, {3.9f, -0.85f}, {4.15f, -0.85f}, {4.15f, 1.22f}}, 0.57f, 0.06f);
+    // Dust cover: rounded top, stamped transverse ribs, release button at the rear.
+    {
+        std::vector<Ring> r;
+        const float xs[] = {-6.62f, -6.5f, 3.4f, 3.62f};
+        const float hw[] = {0.5f, 0.585f, 0.585f, 0.52f}, hh[] = {0.26f, 0.32f, 0.32f, 0.27f};
+        for (int i = 0; i < 4; i++) r.push_back(ringRoundRect({xs[i], 0, 1.25f}, Y, Z, hw[i], hh[i], 0.26f, 5));
+        m.loft(r);
+        for (float rx : {-4.9f, -2.6f, -0.3f, 1.9f}) {
+            std::vector<Ring> rr;
+            rr.push_back(ringRoundRect({rx - 0.28f, 0, 1.27f}, Y, Z, 0.6f, 0.33f, 0.27f, 5));
+            rr.push_back(ringRoundRect({rx - 0.2f, 0, 1.28f}, Y, Z, 0.615f, 0.345f, 0.28f, 5));
+            rr.push_back(ringRoundRect({rx + 0.2f, 0, 1.28f}, Y, Z, 0.615f, 0.345f, 0.28f, 5));
+            rr.push_back(ringRoundRect({rx + 0.28f, 0, 1.27f}, Y, Z, 0.6f, 0.33f, 0.27f, 5));
+            m.loft(rr, false, false);
+        }
+        m.box({-6.72f, 0, 1.0f}, {0.12f, 0.2f, 0.12f}, 0.04f);
+    }
+    // Rear trunnion, side scope rail (left), rivets and pins.
+    m.box({-5.6f, 0, 0.4f}, {0.85f, 0.585f, 0.75f}, 0.05f);
+    m.box({-2.4f, 0.6f, 0.42f}, {2.35f, 0.055f, 0.27f}, 0.04f);
+    m.box({-2.4f, 0.64f, 0.42f}, {2.2f, 0.03f, 0.12f}, 0.02f);
+    for (float s : {-1.0f, 1.0f}) {
+        for (float rx : {-6.0f, -5.4f}) rivet(m, {rx, s * 0.585f, -0.05f}, s);
+        for (float rx : {2.75f, 3.45f}) rivet(m, {rx, s * 0.585f, 0.55f}, s);
+        rivet(m, {3.1f, s * 0.585f, -0.55f}, s);
+        for (float rx : {-0.4f, 0.75f}) rivet(m, {rx, s * 0.585f, -0.12f}, s, 0.1f);
+        rivet(m, {-2.9f, s * 0.585f, -0.05f}, s, 0.07f);
+    }
+    // Magazine guide dimple (left side) and selector lever (right side).
+    m.sphere({2.9f, 0.56f, 0.35f}, {0.5f, 0.04f, 0.28f}, 12, 6);
     m.mat = kDarkSteel;
-    m.cylinder({6.2f, 0, bore}, {21.8f, 0, bore}, 0.36f, 0.33f, 16);
-    m.lathe({21.6f, 0, bore}, {1, 0, 0}, {{0, 0}, {0, 0.44f}, {0.2f, 0.48f}, {2.0f, 0.48f}, {2.3f, 0.40f}, {2.3f, 0}}, 16);
-    m.cylinder({20.2f, 0, bore}, {21.1f, 0, bore}, 0.52f, 0.52f, 16, true, 0.06f);
-    m.box({20.65f, 0, bore + 0.85f}, {0.22f, 0.13f, 0.55f}, 0.04f);
-    for (float s : {-1.0f, 1.0f}) m.box({20.65f, s * 0.32f, bore + 0.9f}, {0.25f, 0.06f, 0.5f}, 0.02f);
-    m.box({15.4f, 0, bore + 0.45f}, {0.55f, 0.42f, 0.75f}, 0.1f);
-    m.cylinder({6.8f, 0, bore + 0.95f}, {15.0f, 0, bore + 0.95f}, 0.34f, 0.34f, 12);
-    m.cylinder({14.8f, 0, bore - 0.5f}, {20.3f, 0, bore - 0.5f}, 0.1f, 0.1f, 8);
+    m.box({-1.1f, -0.61f, 0.72f}, {2.5f, 0.035f, 0.14f}, 0.03f);
+    m.box({1.35f, -0.62f, 0.45f}, {0.12f, 0.05f, 0.35f}, 0.03f);
+    // Front trunnion and rear sight block with leaf.
     m.mat = kGunmetal;
-    m.box({6.45f, 0, bore - 0.05f}, {0.22f, 0.83f, 0.85f}, 0.08f);
-    m.box({14.55f, 0, bore - 0.05f}, {0.2f, 0.78f, 0.78f}, 0.08f);
+    m.box({4.9f, 0, 0.55f}, {0.8f, 0.52f, 0.65f}, 0.1f);
+    m.extrude({{4.0f, 1.3f}, {6.35f, 1.3f}, {6.35f, 0.7f}, {4.0f, 0.4f}}, 0.4f, 0.08f);
+    m.mat = kDarkSteel;
+    m.box({5.25f, 0, 1.4f}, {0.95f, 0.3f, 0.08f}, 0.04f);
+    m.box({5.0f, 0, 1.52f}, {0.18f, 0.34f, 0.07f}, 0.03f);
+    m.box({6.1f, 0, 1.52f}, {0.07f, 0.22f, 0.07f}, 0.02f);
+    // Barrel, gas block, front sight with protective ears, slant muzzle brake.
+    m.cylinder({6.2f, 0, bore}, {21.6f, 0, bore}, 0.34f, 0.3f, 18);
+    m.mat = kGunmetal;
+    m.box({15.55f, 0, bore + 0.42f}, {0.6f, 0.4f, 0.82f}, 0.12f);
+    m.cylinder({15.2f, 0, bore + 0.95f}, {16.1f, 0, bore + 0.95f}, 0.38f, 0.38f, 14, true, 0.05f);
+    m.box({20.6f, 0, bore + 0.35f}, {0.62f, 0.42f, 0.5f}, 0.1f);
+    for (float s : {-1.0f, 1.0f}) m.box({20.6f, s * 0.34f, bore + 1.02f}, {0.34f, 0.07f, 0.52f}, 0.04f);
+    m.mat = kDarkSteel;
+    m.cylinder({20.6f, 0, bore + 0.7f}, {20.6f, 0, bore + 1.38f}, 0.07f, 0.06f, 8);
+    m.lathe({21.5f, 0, bore}, {1, 0, 0}, {{0, 0}, {0, 0.43f}, {0.15f, 0.47f}, {2.1f, 0.47f}, {2.3f, 0.36f}, {2.3f, 0}}, 18);
+    m.box({22.95f, 0, bore + 0.36f}, {0.55f, 0.18f, 0.14f}, 0.04f);
+    // Gas tube and cleaning rod.
+    m.cylinder({6.7f, 0, bore + 0.95f}, {15.3f, 0, bore + 0.95f}, 0.33f, 0.33f, 14);
+    m.cylinder({14.8f, 0, bore - 0.48f}, {20.4f, 0, bore - 0.48f}, 0.1f, 0.1f, 8);
+    // Handguard retainers.
+    m.mat = kGunmetal;
+    m.box({6.45f, 0, bore - 0.05f}, {0.2f, 0.84f, 0.86f}, 0.1f);
+    m.box({14.55f, 0, bore - 0.05f}, {0.18f, 0.8f, 0.8f}, 0.1f);
+    m.box({14.6f, -0.84f, bore - 0.1f}, {0.1f, 0.05f, 0.22f}, 0.02f);
+    // Wooden handguards: lower with palm swells, upper over the gas tube.
     m.mat = kWood;
     {
         std::vector<Ring> r;
-        const float xs[] = {6.65f, 7.2f, 10.5f, 13.9f, 14.35f}, ws[] = {0.74f, 0.81f, 0.83f, 0.79f, 0.72f}, hs[] = {0.72f, 0.79f, 0.81f, 0.77f, 0.70f};
-        for (int i = 0; i < 5; i++) r.push_back(ringRoundRect({xs[i], 0, bore - 0.22f}, {0, 1, 0}, {0, 0, 1}, ws[i], hs[i], 0.42f, 4));
+        const float xs[] = {6.62f, 7.1f, 8.4f, 10.4f, 12.4f, 13.9f, 14.38f};
+        const float ws[] = {0.74f, 0.8f, 0.86f, 0.84f, 0.86f, 0.8f, 0.73f}, hs[] = {0.72f, 0.78f, 0.8f, 0.79f, 0.8f, 0.77f, 0.7f};
+        for (int i = 0; i < 7; i++) r.push_back(ringRoundRect({xs[i], 0, bore - 0.2f}, Y, Z, ws[i], hs[i], 0.44f, 5));
         m.loft(r);
+        // Finger grooves along both sides.
+        m.mat = kWood;
+        m.mat.color = kWood.color * 0.8f;
+        for (float s : {-1.0f, 1.0f}) m.box({10.5f, s * 0.84f, bore - 0.05f}, {3.2f, 0.04f, 0.09f}, 0.03f);
     }
+    m.mat = kWood;
     {
         std::vector<Ring> r;
-        const float xs[] = {7.0f, 7.4f, 14.2f, 14.6f}, ws[] = {0.50f, 0.58f, 0.58f, 0.50f}, hs[] = {0.40f, 0.45f, 0.45f, 0.40f};
-        for (int i = 0; i < 4; i++) r.push_back(ringRoundRect({xs[i], 0, bore + 0.98f}, {0, 1, 0}, {0, 0, 1}, ws[i], hs[i], 0.35f, 4));
+        const float xs[] = {7.0f, 7.4f, 11.0f, 14.2f, 14.6f}, ws[] = {0.5f, 0.58f, 0.6f, 0.58f, 0.5f}, hs[] = {0.4f, 0.46f, 0.47f, 0.46f, 0.4f};
+        for (int i = 0; i < 5; i++) r.push_back(ringRoundRect({xs[i], 0, bore + 0.99f}, Y, Z, ws[i], hs[i], 0.36f, 5));
         m.loft(r);
     }
+    // Stock with steel butt plate.
     m.extrude({{-6.4f, 1.05f}, {-6.4f, -0.7f}, {-8.5f, -1.45f}, {-11.5f, -2.5f}, {-14.5f, -3.45f}, {-16.1f, -3.95f},
-               {-16.1f, 0.05f}, {-12.0f, 0.42f}, {-8.5f, 0.82f}}, 0.62f, 0.24f);
+               {-16.1f, 0.05f}, {-12.0f, 0.42f}, {-8.5f, 0.82f}}, 0.64f, 0.26f);
     m.mat = kDarkSteel;
-    m.box({-16.25f, 0, -1.95f}, {0.15f, 0.6f, 2.05f}, 0.08f);
+    m.box({-16.25f, 0, -1.95f}, {0.15f, 0.62f, 2.05f}, 0.08f);
+    rivet(m, {-15.0f, 0.64f, -1.3f}, 1.0f, 0.1f);
+    rivet(m, {-15.0f, -0.64f, -1.3f}, -1.0f, 0.1f);
+    // Pistol grip, trigger guard, trigger.
     m.mat = kGripBrown;
     m.extrude({{-1.35f, -0.75f}, {0.05f, -0.75f}, {-0.35f, -2.2f}, {-0.9f, -3.7f}, {-1.35f, -4.7f}, {-1.6f, -5.05f},
-               {-2.2f, -5.2f}, {-2.75f, -5.05f}, {-2.9f, -4.7f}, {-2.6f, -3.6f}, {-2.1f, -2.1f}, {-1.7f, -1.2f}}, 0.5f, 0.2f, 35);
+               {-2.2f, -5.2f}, {-2.75f, -5.05f}, {-2.9f, -4.7f}, {-2.6f, -3.6f}, {-2.1f, -2.1f}, {-1.7f, -1.2f}}, 0.5f, 0.22f, 35);
     m.mat = kDarkSteel;
-    m.box({0.3f, 0, -2.25f}, {0.85f, 0.14f, 0.07f}, 0.03f);
-    m.box({1.1f, 0, -1.55f}, {0.08f, 0.14f, 0.75f}, 0.03f);
+    m.box({0.35f, 0, -2.25f}, {0.9f, 0.16f, 0.07f}, 0.03f);
+    m.box({1.2f, 0, -1.55f}, {0.08f, 0.16f, 0.75f}, 0.03f);
     m.box({0.25f, 0, -1.3f}, {0.07f, 0.1f, 0.45f}, 0.03f);
-    m.box({-2.6f, -0.6f, 0.55f}, {2.6f, 0.04f, 0.16f}, 0.03f);
-    // Magazine.
+    // Magazine: curved steel body with stamped ribs, locking lug.
     m.bone = WB_MAG;
-    m.mat = kGunmetal;
-    m.mat.color = {0.16f, 0.16f, 0.17f};
+    m.mat = kMagSteel;
     m.extrude(magOutline({2.4f, -0.75f}, 15.0f, 9.0f, 2.8f, 3.3f, 0.5f), 0.5f, 0.12f);
+    for (float f : {-0.28f, 0.0f, 0.28f}) m.extrude(magBand({2.4f, -0.75f}, 15.0f, 9.0f, 2.8f, 3.3f, f - 0.05f, f + 0.05f, 0.12f, 0.9f), 0.535f, 0.03f);
+    m.extrude(magBand({2.4f, -0.75f}, 15.0f, 9.0f, 2.8f, 3.3f, -0.55f, 0.55f, 0.94f, 1.0f), 0.55f, 0.06f);
     m.box({3.85f, 0, -1.0f}, {0.2f, 0.35f, 0.18f}, 0.05f);
     // Charging handle (bolt carrier).
     m.bone = WB_BOLT;
@@ -146,12 +239,15 @@ void buildAK(MeshBuilder& m, WeaponModel& w) {
     w.boltTravel = 3.6f;
     vec3 up = normalize(vec3(1.6f, 0, 4.2f));
     w.rightGrip = gripFrame(vec3(-0.65f, 0, -0.8f) - up * 1.75f, normalize(vec3(0.93f, 0.08f, -0.36f)), {0, -1, 0.15f}, {2.55f, 0.0f, -1.25f});
-    w.leftGrip = gripFrame({10.3f, 0, bore - 0.22f}, normalize(vec3(0.22f, -1.0f, 0.12f)), {0, 0.2f, -1.0f}, {2.35f, 0.1f, -1.38f});
+    w.leftGrip = supportUnderHandguard({8.2f, 0, bore - 0.22f});
     w.leftMagGrip = gripFrame({3.6f, 0.0f, -4.0f}, normalize(vec3(0.3f, -1.0f, -0.35f)), {-0.2f, 0.4f, -0.9f}, {2.3f, 0.2f, -1.2f});
     w.rightPose = poseTriggerGrip();
-    w.leftPose = poseHandguard();
+    w.leftPose = poseUnderHandguard();
     w.leftMagPose = poseMag();
-    w.viewHold = {{11.2f, -6.2f, -5.4f}, quatFromEuler(0.5f, 3.0f, 16.0f)};
+    // Matches the CS2 framing: rifle parallel to the view, top of the receiver 2.7 below the eye.
+    w.viewHold = {{16.85f, -7.3f, -4.35f}, quat()};
+    w.shoulderL = {8.0f, 0.0f, -17.0f};
+    w.poleL = {0.3f, 0.3f, -1.0f};
 }
 
 void buildM4(MeshBuilder& m, WeaponModel& w) {
@@ -205,12 +301,14 @@ void buildM4(MeshBuilder& m, WeaponModel& w) {
     w.boltTravel = 2.5f;
     vec3 up = normalize(vec3(1.2f, 0, 3.85f));
     w.rightGrip = gripFrame(vec3(-0.6f, 0, -0.35f) - up * 1.7f, normalize(vec3(0.95f, 0.08f, -0.3f)), {0, -1, 0.15f}, {2.55f, 0.0f, -1.25f});
-    w.leftGrip = gripFrame({8.9f, 0, bore}, normalize(vec3(0.22f, -1.0f, 0.12f)), {0, 0.2f, -1.0f}, {2.35f, 0.1f, -1.35f});
+    w.leftGrip = supportUnderHandguard({6.4f, 0, bore}, 1.3f);
     w.leftMagGrip = gripFrame({2.3f, 0.0f, -4.0f}, normalize(vec3(0.25f, -1.0f, -0.3f)), {-0.2f, 0.4f, -0.9f}, {2.3f, 0.2f, -1.15f});
     w.rightPose = poseTriggerGrip();
-    w.leftPose = poseHandguard();
+    w.leftPose = poseUnderHandguard();
     w.leftMagPose = poseMag();
-    w.viewHold = {{11.2f, -6.1f, -5.5f}, quatFromEuler(0.5f, 3.0f, 16.0f)};
+    w.viewHold = {{15.1f, -7.3f, -4.76f}, quat()};
+    w.shoulderL = {8.0f, 0.0f, -17.0f};
+    w.poleL = {0.3f, 0.3f, -1.0f};
 }
 
 void buildAWP(MeshBuilder& m, WeaponModel& w) {
@@ -258,13 +356,15 @@ void buildAWP(MeshBuilder& m, WeaponModel& w) {
     w.boltTravel = 3.2f;
     vec3 up = normalize(vec3(0.85f, 0, 3.9f));
     w.rightGrip = gripFrame(vec3(-1.1f, 0, -1.0f) - up * 1.55f, normalize(vec3(0.97f, 0.08f, -0.21f)), {0, -1, 0.15f}, {2.6f, 0.0f, -1.32f});
-    w.leftGrip = gripFrame({8.8f, 0, 0.35f}, normalize(vec3(0.2f, -1.0f, 0.15f)), {0, 0.25f, -1.0f}, {2.35f, 0.1f, -1.55f});
+    w.leftGrip = supportUnderHandguard({6.5f, 0, 0.35f}, 1.5f);
     w.leftMagGrip = gripFrame({1.9f, 0, -2.2f}, normalize(vec3(0.2f, -1.0f, -0.3f)), {-0.1f, 0.4f, -0.9f}, {2.3f, 0.2f, -1.15f});
     w.rightBoltGrip = gripFrame({-3.0f, -2.02f, bore - 0.33f}, normalize(vec3(0.3f, 0.2f, 1.0f)), {0.1f, -1.0f, 0.1f}, {2.4f, 0.3f, -1.0f});
     w.rightPose = poseTriggerGrip();
-    w.leftPose = poseHandguard();
+    w.leftPose = poseUnderHandguard();
     w.leftMagPose = poseMag();
-    w.viewHold = {{11.0f, -6.2f, -6.4f}, quatFromEuler(0.5f, 2.5f, 12.0f)};
+    w.viewHold = {{13.8f, -7.8f, -5.62f}, quat()};
+    w.shoulderL = {8.0f, 0.0f, -17.0f};
+    w.poleL = {0.3f, 0.3f, -1.0f};
 }
 
 struct PistolSpec {
@@ -326,10 +426,14 @@ void buildPistol(MeshBuilder& m, WeaponModel& w, const PistolSpec& s) {
     w.rightPose = poseTriggerGrip();
     w.leftPose = poseSupportPistol();
     w.leftMagPose = poseMag();
-    w.viewHold = {{13.2f, -4.7f, -4.3f}, quatFromEuler(1.0f, 4.0f, 10.0f)};
-    w.shoulderR = {-6.0f, -7.5f, -10.5f};
-    w.shoulderL = {-5.0f, 6.5f, -10.5f};
-    w.poleL = {0.0f, 0.8f, -1.0f};
+    // Slide rear 13 units ahead, 4.2 right, slide top 1.4 below the eye: both hands show at the bottom right.
+    float slideRear = s.slideFront - s.slideLen;
+    w.viewHold = {{13.0f - slideRear, -4.2f, -1.4f - s.slideTop}, quatFromEuler(0.0f, 3.0f, 0.0f)};
+    // Arms extended forward: elbows sit low and outside, so forearms enter from the bottom corners.
+    w.shoulderR = {-4.0f, -7.0f, -12.0f};
+    w.shoulderL = {-4.0f, 5.0f, -12.0f};
+    w.poleR = {0.0f, -1.0f, -0.5f};
+    w.poleL = {0.0f, 1.0f, -0.5f};
 }
 
 void buildKnife(MeshBuilder& m, WeaponModel& w) {
@@ -379,12 +483,14 @@ void buildKnife(MeshBuilder& m, WeaponModel& w) {
 
     w.muzzle = {7.4f, 0, 0};
     w.leftOnWeapon = false;
-    w.rightGrip = gripFrame({-0.7f, 0, 0.0f}, normalize(vec3(0.0f, 0.35f, -1.0f)), {0.0f, -1.0f, -0.25f}, {2.45f, 0.1f, -1.2f});
+    // Hammer grip from below: fingers wrap over the handle, thumb side toward the blade, so the forearm comes from the bottom.
+    w.rightGrip = gripFrame({-1.1f, 0, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {2.5f, 0.0f, -1.2f});
     w.leftGrip = w.rightGrip;
     w.rightPose = poseFist();
     w.leftPose = poseRelaxed();
-    w.viewHold = {{12.5f, -5.8f, -4.6f}, quatFromEuler(12.0f, 18.0f, 10.0f)};
-    w.shoulderR = {-6.0f, -8.0f, -10.0f};
+    w.viewHold = {{11.5f, -6.6f, -5.7f}, quatFromEuler(32.0f, 28.0f, -28.0f)};
+    w.shoulderR = {2.0f, -10.0f, -18.0f};
+    w.poleR = {0.3f, -0.7f, -1.0f};
     w.shoulderL = {-3.0f, 8.0f, -10.0f};
 }
 
@@ -413,12 +519,13 @@ void buildGrenade(MeshBuilder& m, WeaponModel& w, int id) {
     m.cylinder({0.25f, 0.42f, 1.8f}, {0.25f, 0.5f, 1.8f}, 0.5f, 0.5f, 12, false);
     w.muzzle = {0, 0, 0};
     w.leftOnWeapon = false;
-    w.rightGrip = gripFrame({0, 0, 0}, normalize(vec3(0.3f, 0.2f, -1.0f)), {-0.3f, -1.0f, 0.0f}, {2.2f, 0.2f, -1.55f});
+    w.rightGrip = gripFrame({0, 0, 0}, normalize(vec3(0.35f, 0.25f, 0.9f)), {-0.3f, -0.9f, 0.2f}, {2.2f, 0.2f, -1.55f});
     w.leftGrip = w.rightGrip;
     w.rightPose = poseFist();
     w.leftPose = poseRelaxed();
-    w.viewHold = {{12.5f, -5.4f, -4.9f}, quatFromEuler(10.0f, 12.0f, 6.0f)};
-    w.shoulderR = {-6.0f, -8.0f, -10.0f};
+    w.viewHold = {{13.5f, -5.8f, -5.0f}, quatFromEuler(10.0f, 10.0f, 0.0f)};
+    w.shoulderR = {2.0f, -10.0f, -18.0f};
+    w.poleR = {0.3f, -0.7f, -1.0f};
     w.shoulderL = {-3.0f, 8.0f, -10.0f};
 }
 
@@ -477,5 +584,6 @@ void buildWeaponModel(int id, Renderer& r, WeaponModel& w) {
         default: buildKnife(m, w); break;
     }
     for (auto& v : m.verts) w.bounds.add(v.pos);
+    m.bakeAO(1.6f, 40, 0.5f);
     w.mesh = m.upload(r);
 }

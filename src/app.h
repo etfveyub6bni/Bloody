@@ -38,6 +38,10 @@ struct AutoShot {
     int tab = 0, settingsTab = 0;
     bool fire = false;
     bool thirdPerson = false;
+    std::string vmView;  // vmlab camera
+    std::string vmHold;  // vmlab override: x,y,z,pitch,yaw,roll
+    bool vmClay = false;
+    std::string vmRig;   // vmlab override: key=x,y,z;... (lgrip,lfinger,ldorsal,rgrip,rfinger,rdorsal,lsh,rsh,lpole,rpole)
     int frame = 0;
 };
 
@@ -56,7 +60,6 @@ public:
     ArmsModel arms[3];
     AgentModel agents[3];
     GpuMesh shellMesh;
-    GLuint albedoArr = 0, normalArr = 0;
     std::vector<std::unique_ptr<GameMap>> maps;
     std::vector<GLuint> thumbs, radars;
     std::vector<vec3> radarCenter;
@@ -97,6 +100,8 @@ private:
     void applyVideoSettings();
     void frameLobby(float dt);
     void frameGame(float dt);
+    void frameVmLab(float dt);
+    void buildViewmodelDraws(int team, const ViewmodelParams& vp, const Xform& eye, vec3 ambUp, vec3 ambDown, std::vector<ModelDraw>& out);
     void processEvents();
     void parseArgs(int argc, char** argv);
     bool automationStep();
@@ -122,6 +127,7 @@ private:
     };
     std::vector<Scheduled> scheduled;
     float shake = 0;
+    vec3 viewPunch, viewPunchVel;  // degrees: pitch up, yaw left, roll
     float lastLocalShot = -10;
     float damageFlash = 0;
     vec3 vmMuzzleWorld;

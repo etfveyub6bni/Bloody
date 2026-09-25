@@ -69,11 +69,16 @@ public:
     const SpawnPoint* randomSpawn(int team, Rng& rng) const;
 
 private:
-    vec3 traceRadiance(vec3 origin, vec3 dir, float* hitDist) const;
+    // sx/sy seed the secondary (second-bounce) ray at high bake quality.
+    vec3 traceRadiance(vec3 origin, vec3 dir, float* hitDist, int sx = 0, int sy = 0) const;
 };
 
 // Builds the collision world, layout and metadata for a map id. Returns false if unknown.
 bool buildMapById(const std::string& id, GameMap& out);
+
+// Quality of light baking for maps baked afterwards: 0 low (fewer rays), 1 normal,
+// 2 high (path-traced second bounce), 3 max (second bounce and more rays).
+void setLightBakeQuality(int q);
 
 struct MapListEntry {
     const char* id;

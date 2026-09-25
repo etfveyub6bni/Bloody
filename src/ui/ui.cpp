@@ -178,7 +178,23 @@ void UI::begin(int w, int h, GLuint blurTex, float sc) {
 
 void UI::end() {
     flush();
+    if (m_clipOn) clearClip();
     glDisable(GL_BLEND);
+}
+
+void UI::setClip(float x, float y, float w, float h) {
+    flush();
+    m_clipOn = true;
+    m_clip = vec4(x, y, w, h);
+    int x0 = (int)std::floor(x), y0 = (int)std::floor(y), x1 = (int)std::ceil(x + w), y1 = (int)std::ceil(y + h);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(x0, height - y1, std::max(0, x1 - x0), std::max(0, y1 - y0));  // GL origin is bottom-left
+}
+
+void UI::clearClip() {
+    flush();
+    m_clipOn = false;
+    glDisable(GL_SCISSOR_TEST);
 }
 
 void UI::setTex(GLuint tex) {
@@ -319,4 +335,38 @@ float UI::textShadowed(Font& f, const std::string& s, float x, float y, float si
     }
     text(f, s, x, y, size, col, align, spacing, 0.0f);
     return w;
+}
+
+std::vector<std::string> UI::wrap(Font& f, const std::string& s, float size, float maxW) {
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start <= s.size()) {
+        size_t nl = s.find('\n', start);
+        if (nl == std::string::npos) nl = s.size();
+        std::string para = s.substr(start, nl - start), line;
+        size_t p = 0;
+        while (p < para.size()) {
+            size_t sp = para.find(' ', p);
+            if (sp == std::string::npos) sp = para.size();
+            std::string word = para.substr(p, sp - p);
+            std::string cand = line.empty() ? word : line + " " + word;
+            if (!line.empty() && textWidth(f, cand, size) > maxW) {
+                lines.push_back(line);
+                line = word;
+            } else {
+                line = cand;
+            }
+            p = sp + 1;
+        }
+        lines.push_back(line);
+        start = nl + 1;
+    }
+    return lines;
+}
+
+float UI::textWrapped(Font& f, const std::string& s, float x, float y, float size, float maxW, uint32_t col, float lineH) {
+    std::vector<std::string> lines = wrap(f, s, size, maxW);
+    for (size_t i = 0; i < lines.size(); i++)
+        if (!lines[i].empty()) text(f, lines[i], x, y + i * lineH, size, col);
+    return lines.size() * lineH;
 }

@@ -43,6 +43,10 @@ public:
     void loft(const std::vector<Ring>& rings, bool capStart = true, bool capEnd = true);
 
     void append(const MeshBuilder& o);
+    // Splits triangles until no edge is longer than maxEdge (for per-vertex effects).
+    void tessellate(float maxEdge);
+    // Bakes ambient occlusion into the color alpha (1 = open). Call once, right before upload().
+    void bakeAO(float maxDist = 2.5f, int rays = 48, float maxEdge = 0.7f, bool sameBoneOnly = false);
     GpuMesh upload(Renderer& r) const { return r.createModelMesh(verts, idx); }
 
 private:

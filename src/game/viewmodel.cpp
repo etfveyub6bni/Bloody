@@ -37,7 +37,7 @@ void animateViewmodel(const WeaponModel& wm, const ViewmodelParams& p, Viewmodel
 
     // Movement bob (figure eight).
     float spd = saturate(p.speed / 250.0f) * (p.onGround ? 1.0f : 0.25f);
-    st.bobAmp = damp(st.bobAmp, spd, 8.0f, dt);
+    st.bobAmp = damp(st.bobAmp, spd * p.bob, 8.0f, dt);
     st.bobPhase += dt * p.speed / 34.0f;
     pose.pos.y += std::sin(st.bobPhase) * 0.42f * st.bobAmp;
     pose.pos.z += (std::cos(st.bobPhase * 2.0f) - 1.0f) * 0.16f * st.bobAmp - 0.25f * st.bobAmp;
@@ -91,9 +91,9 @@ void animateViewmodel(const WeaponModel& wm, const ViewmodelParams& p, Viewmodel
     if (!knife && !grenade) {
         float k = kick(p.fireT, 0.018f, pistol ? 13.0f : 17.0f);
         float rs = std::sin(p.shots * 12.9898f) * 0.5f;
-        if (sniper) pose.add({{-2.6f, 0.2f, 0.4f}, {7.0f, 0.5f, 2.0f}}, k);
-        else if (pistol) pose.add({{-1.0f, 0.0f, 0.25f}, {5.5f, rs * 1.2f, rs * 2.0f}}, k);
-        else pose.add({{-1.15f, 0.05f, 0.12f}, {2.0f, rs * 0.8f, rs * 2.2f}}, k);
+        if (sniper) pose.add({{-3.6f, 0.3f, 0.7f}, {9.0f, 0.8f, 3.0f}}, k);
+        else if (pistol) pose.add({{-1.5f, 0.0f, 0.45f}, {8.5f, rs * 1.6f, rs * 3.0f}}, k);
+        else pose.add({{-1.7f, 0.08f, 0.22f}, {3.2f, rs * 1.1f, rs * 3.0f}}, k);
         if (!sniper && p.fireT < 0.12f) {
             float travel = p.fireT < 0.025f ? p.fireT / 0.025f : std::max(0.0f, 1.0f - (p.fireT - 0.025f) / 0.07f);
             out.weaponBones[WB_BOLT] = translate(wm.boltDir * (wm.boltTravel * travel));

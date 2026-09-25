@@ -11,17 +11,22 @@ struct Input {
     bool prevKeys[GLFW_KEY_LAST + 1] = {};
     bool mouse[8] = {};
     bool prevMouse[8] = {};
+    // Edges latched by the callbacks since the last frame, so a press and release within one slow frame is not lost.
+    bool keyHit[GLFW_KEY_LAST + 1] = {};
+    bool keyLift[GLFW_KEY_LAST + 1] = {};
+    bool mouseHit[8] = {};
+    bool mouseLift[8] = {};
     vec2 mousePos;    // framebuffer pixels, origin top-left
     vec2 mouseDelta;  // raw motion accumulated this frame
     float scroll = 0;
     std::u32string text;
 
     bool down(int k) const { return k >= 0 && k <= GLFW_KEY_LAST && keys[k]; }
-    bool pressed(int k) const { return down(k) && !prevKeys[k]; }
-    bool released(int k) const { return k >= 0 && k <= GLFW_KEY_LAST && !keys[k] && prevKeys[k]; }
+    bool pressed(int k) const { return k >= 0 && k <= GLFW_KEY_LAST && (keyHit[k] || (keys[k] && !prevKeys[k])); }
+    bool released(int k) const { return k >= 0 && k <= GLFW_KEY_LAST && (keyLift[k] || (!keys[k] && prevKeys[k])); }
     bool mouseDown(int b) const { return mouse[b]; }
-    bool mousePressed(int b) const { return mouse[b] && !prevMouse[b]; }
-    bool mouseReleased(int b) const { return !mouse[b] && prevMouse[b]; }
+    bool mousePressed(int b) const { return mouseHit[b] || (mouse[b] && !prevMouse[b]); }
+    bool mouseReleased(int b) const { return mouseLift[b] || (!mouse[b] && prevMouse[b]); }
 };
 
 class Window {
@@ -34,6 +39,9 @@ public:
     void swap();
     void setCursorLocked(bool locked);
     bool cursorLocked() const { return m_locked; }
+    // Unaccelerated mouse motion; GLFW only delivers it while the cursor is captured.
+    void setRawMouse(bool on);
+    bool rawMouseSupported() const;
     void setVsync(bool on);
     void setFullscreen(bool on);
     bool fullscreen() const { return m_fullscreen; }
@@ -53,10 +61,13 @@ private:
     static void onChar(GLFWwindow* w, unsigned int cp);
     static void onFbSize(GLFWwindow* w, int width, int height);
     static void onFocus(GLFWwindow* w, int focused);
+    void applyRawMouse();
 
     GLFWwindow* m_win = nullptr;
     int m_fbW = 0, m_fbH = 0;
     bool m_locked = false, m_fullscreen = false;
+    bool m_rawWanted = true;
+    int m_rawApplied = -1;  // GLFW_TRUE / GLFW_FALSE once set
     int m_winX = 80, m_winY = 80, m_winW = 1600, m_winH = 900;
     double m_lastX = 0, m_lastY = 0;
     bool m_haveLast = false;

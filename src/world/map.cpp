@@ -1,5 +1,6 @@
 #include "world/map.h"
 
+#include <chrono>
 #include <thread>
 #include <unordered_map>
 
@@ -9,6 +10,8 @@
 namespace {
 
 constexpr float kMapBottom = -64.0f;
+
+std::atomic<int> g_bakeQuality{1};
 
 vec3 tintRGB(uint32_t t) { return vec3((t & 255) / 255.0f, ((t >> 8) & 255) / 255.0f, ((t >> 16) & 255) / 255.0f); }
 
@@ -48,6 +51,8 @@ float area2(const std::vector<vec2>& p) {
 }
 
 }  // namespace
+
+void setLightBakeQuality(int q) { g_bakeQuality = std::max(0, std::min(q, 3)); }
 
 void GameMap::buildRenderGeometry() {
     verts.clear();
@@ -139,7 +144,12 @@ void GameMap::buildRenderGeometry() {
                     for (auto& q : cp) c2 += q;
                     c2 = c2 / (float)cp.size();
                     vec3 c3 = org + e1 * c2.x + e2 * c2.y;
-                    if (world.pointInsideVisible(c3 + n * 1.0f, bi)) continue;
+                    // Drop a piece only when it is hidden everywhere: testing just the centre removed wall
+                    // pieces straddling the floor behind the skirting and left sky-coloured gaps at wall bases.
+                    auto hiddenAt = [&](vec2 q) { return world.pointInsideVisible(org + e1 * q.x + e2 * q.y + n * 1.0f, bi); };
+                    bool hidden = hiddenAt(c2);
+                    for (size_t k = 0; hidden && k < cp.size(); k++) hidden = hiddenAt(lerp(c2, cp[k], 0.85f));
+                    if (hidden) continue;
                     int cx = std::min(cw - 1, std::max(0, (int)((c3.x - bounds.mn.x) / chunkSize)));
                     int cy = std::min(chh - 1, std::max(0, (int)((c3.y - bounds.mn.y) / chunkSize)));
                     auto& out = chunkIdx[(size_t)cy * cw + cx];
@@ -163,7 +173,7 @@ void GameMap::buildRenderGeometry() {
     }
 }
 
-vec3 GameMap::traceRadiance(vec3 origin, vec3 dir, float* hitDist) const {
+vec3 GameMap::traceRadiance(vec3 origin, vec3 dir, float* hitDist, int sx, int sy) const {
     const Environment& env = info.env;
     const float far = 9000.0f;
     TraceResult tr = world.traceRay(origin, origin + dir * far, MASK_SHOT);
@@ -178,7 +188,21 @@ vec3 GameMap::traceRadiance(vec3 origin, vec3 dir, float* hitDist) const {
     *hitDist = tr.fraction * far;
     const Brush& b = world.brushes[tr.brush];
     vec3 alb = materialInfo(b.material).avgAlbedo * tintRGB(b.tint);
-    vec3 L = (env.skyZenith + env.skyHorizon) * 0.5f * env.skyIntensity * 0.3f + env.indoorAmbient;
+    vec3 L = env.indoorAmbient;
+    if (g_bakeQuality >= 2) {
+        // One cosine-weighted sky sample from the hit point: a path-traced second bounce, so surfaces deep
+        // in tunnels and corners stop receiving a constant sky term.
+        vec3 n = tr.normal, t = anyPerp(n), bt = cross(n, t);
+        float u1 = noise::hashf(sx, sy, 11, 131), u2 = noise::hashf(sx, sy, 13, 137);
+        float r = std::sqrt(u1), phi = kTwoPi * u2;
+        vec3 d2 = t * (r * std::cos(phi)) + bt * (r * std::sin(phi)) + n * std::sqrt(std::max(0.0f, 1 - u1));
+        vec3 hp = tr.endpos + n * 0.5f;
+        TraceResult t2 = world.traceRay(hp, hp + d2 * far, MASK_SHOT);
+        if (t2.fraction >= 1.0f && !t2.startSolid) L += env.skyRadiance(d2) * env.skyIntensity * 0.6f;
+        else L += (env.skyZenith + env.skyHorizon) * 0.5f * env.skyIntensity * 0.05f;
+    } else {
+        L += (env.skyZenith + env.skyHorizon) * 0.5f * env.skyIntensity * 0.3f;
+    }
     float ndl = dot(tr.normal, env.sunDir);
     if (ndl > 0) {
         vec3 hp = tr.endpos + tr.normal * 0.5f;
@@ -188,8 +212,11 @@ vec3 GameMap::traceRadiance(vec3 origin, vec3 dir, float* hitDist) const {
     return alb * L;
 }
 
-void GameMap::bakeLighting(int rays) {
+void GameMap::bakeLighting(int baseRays) {
     progress = 0;
+    auto t0 = std::chrono::steady_clock::now();
+    const int q = g_bakeQuality;
+    const int rays = q == 0 ? std::max(16, baseRays / 2) : q == 3 ? baseRays * 3 / 2 : baseRays;
     const int count = (int)verts.size();
     std::atomic<int> done{0};
     parallelFor(count, [&](int vi) {
@@ -200,6 +227,15 @@ void GameMap::bakeLighting(int rays) {
         for (int it = 0; it < 2; it++)
             for (const vec3& a : axes)
                 if (dot(a, n) < 0.5f && world.pointSolid(o + a * 1.0f, MASK_SHOT)) o -= a * 1.0f;
+        // Vertices of pieces that dip below the floor start inside solids: bake them from just above.
+        if (world.pointSolid(o, MASK_SHOT))
+            for (int s = 1; s <= 16; s++) {
+                vec3 q = o + vec3(0, 0, 4.0f * s);
+                if (!world.pointSolid(q, MASK_SHOT)) {
+                    o = q;
+                    break;
+                }
+            }
         vec3 t = anyPerp(n), bt = cross(n, t);
         float rot = noise::hashf(vi, 7, 3, 99);
         vec3 sum(0);
@@ -210,7 +246,7 @@ void GameMap::bakeLighting(int rays) {
             float r = std::sqrt(u1), phi = kTwoPi * u2;
             vec3 d = t * (r * std::cos(phi)) + bt * (r * std::sin(phi)) + n * std::sqrt(std::max(0.0f, 1 - u1));
             float dist;
-            sum += traceRadiance(o, d, &dist);
+            sum += traceRadiance(o, d, &dist, vi, k);
             if (dist < 80.0f) occl += 1.0f - dist / 80.0f;
         }
         v.light = vec4(sum / (float)rays, 1.0f - 0.55f * occl / rays);
@@ -218,6 +254,8 @@ void GameMap::bakeLighting(int rays) {
         if ((d & 255) == 0) progress = (float)d / (float)count;
     });
     progress = 1.0f;
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    logInfo("Light bake: %d verts, %d rays, quality %d, %.0f ms", count, rays, q, ms);
 }
 
 void GameMap::buildNavigation() {
@@ -286,7 +324,7 @@ void GameMap::bakeProbes() {
                 float r = std::sqrt(u1), phi = kTwoPi * u2;
                 vec3 d(r * std::cos(phi), r * std::sin(phi), nn.z * std::sqrt(std::max(0.0f, 1 - u1)));
                 float dist;
-                sum += traceRadiance(p, d, &dist);
+                sum += traceRadiance(p, d, &dist, i * 2 + hemi, k + 7919);
             }
             (hemi == 0 ? probes.up[i] : probes.down[i]) = sum / (float)rays;
         }

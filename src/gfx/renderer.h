@@ -47,20 +47,28 @@ struct Camera {
 };
 
 struct Environment {
-    vec3 sunDir = normalize(vec3(0.45f, -0.38f, 0.80f));
-    vec3 sunColor = vec3(1.0f, 0.92f, 0.80f) * 3.4f;
-    vec3 skyZenith{0.20f, 0.40f, 0.78f};
-    vec3 skyHorizon{0.66f, 0.74f, 0.84f};
-    vec3 groundColor{0.40f, 0.33f, 0.25f};
-    vec3 fogColor{0.70f, 0.74f, 0.80f};
-    float fogDensity = 0.00005f;
-    float exposure = 1.0f;
-    float bloomStrength = 0.05f;
-    float bloomThreshold = 1.4f;
-    float saturation = 1.05f;
-    float contrast = 1.05f;
+    vec3 sunDir = normalize(vec3(0.45f, -0.40f, 0.74f));
+    vec3 sunColor = vec3(1.0f, 0.86f, 0.68f) * 4.0f;
+    vec3 skyZenith{0.13f, 0.31f, 0.80f};
+    vec3 skyHorizon{0.56f, 0.68f, 0.88f};
+    vec3 groundColor{0.42f, 0.34f, 0.25f};
+    vec3 fogColor{0.66f, 0.73f, 0.84f};
+    float fogDensity = 0.00007f;
+    float fogFalloff = 1.0f / 700.0f;  // height fog: density halves every ~485 units
+    float fogBaseHeight = 0.0f;
+    float fogSunScatter = 0.06f;       // warm forward scattering towards the sun
+    float fogMaxOpacity = 0.85f;
+    float exposure = 1.1f;
+    float bloomStrength = 0.06f;
+    float bloomThreshold = 1.2f;
+    float saturation = 1.12f;
+    float contrast = 1.10f;
     float vignette = 0.30f;
-    vec3 grade{1.02f, 1.0f, 0.97f};
+    vec3 grade{1.03f, 1.0f, 0.96f};
+    vec3 shadowTint{0.93f, 0.98f, 1.10f};    // split toning: cool shade
+    vec3 highlightTint{1.05f, 1.0f, 0.93f};  // warm highlights
+    float shaftStrength = 0.7f;
+    float flareStrength = 1.0f;
     float cloudiness = 0.35f;
     float skyIntensity = 1.0f;   // multiplier for baked sky light
     float bounceScale = 0.75f;   // multiplier for baked sun bounce
@@ -139,24 +147,37 @@ struct FrameInput {
 
 struct RenderSettings {
     float renderScale = 1.0f;
-    int msaa = 4;
-    int shadowSize = 4096;
+    int msaa = 8;               // 0, 2, 4, 8
+    int shadows = 3;            // 0 off, 1 medium, 2 high, 3 max (cascades, PCSS)
+    int ssao = 2;               // 0 off, 1 normal, 2 high
+    bool sunShafts = true;
+    bool fxaa = true;
     bool bloom = true;
-    bool operator==(const RenderSettings& o) const {
-        return renderScale == o.renderScale && msaa == o.msaa && shadowSize == o.shadowSize && bloom == o.bloom;
-    }
+    bool lensFlare = true;
+    int textureQuality = 2;     // 0 low (256), 1 medium (512), 2 high (1024); regenerates on change
+    int anisotropy = 16;        // 1..16, clamped to the driver limit
+    // Post-processing taste.
+    float brightness = 0.0f;    // -1..1 exposure offset in stops
+    float saturation = 1.0f;    // 0.5..1.5
+    float sharpen = 0.35f;      // 0..1
+    bool filmGrain = true;
+    bool chromatic = false;
+    bool vignette = true;
 };
 
 class Renderer {
 public:
     bool init();
     void shutdown();
+    // Applies every video setting; render targets, shadow maps and world textures are rebuilt only on change.
     void configure(int outW, int outH, const RenderSettings& rs);
 
     void setWorldGeometry(const std::vector<WorldVertex>& verts, const std::vector<uint32_t>& idx,
                           const std::vector<WorldChunk>& chunks, const AABB& bounds);
     void clearWorld();
-    void setWorldTextures(GLuint albedoArray, GLuint normalArray) { m_albedoArr = albedoArray; m_normalArr = normalArray; }
+    // Takes ownership. The renderer generates its own world textures at the configured quality, so arrays
+    // passed here are only used until then (and deleted if the renderer's own set already exists).
+    void setWorldTextures(GLuint albedoArray, GLuint normalArray);
     void setEnvironment(const Environment& e) { m_env = e; m_shadowDirty = true; }
     const Environment& environment() const { return m_env; }
 
@@ -177,29 +198,47 @@ public:
     int drawCalls = 0;
 
 private:
-    void applyCommon(Shader& s, const Camera& cam, const FrameInput& in, bool withShadow);
-    void renderShadowMap(const FrameInput& in);
+    void applyCommon(Shader& s, const Camera& cam, const FrameInput& in, bool withShadow, bool withSSAO);
+    void createShadowMaps();
+    void computeCascades(const Camera& cam);
+    void renderShadowMaps(const FrameInput& in);
+    void renderDepthPrepass(const FrameInput& in, const Frustum& fr);
+    void renderSSAO(const Camera& cam);
+    void renderSunShafts(const Camera& cam, vec2 sunUV);
+    void updateWorldTextures();
+    void setupWorldMaterials(Shader& s);
     void drawWorld(Shader& s, const Frustum* fr);
-    void drawModels(Shader& s, const std::vector<ModelDraw>& list, bool shadowPass);
+    void drawModels(Shader& s, const std::vector<ModelDraw>& list, int mode);
     void drawSprites(const std::vector<SpriteVertex>& verts, const Camera& cam, const FrameInput& in);
     void fullscreen();
 
-    Shader m_world, m_model, m_shadowWorld, m_shadowModel, m_sky, m_sprite, m_bloomDown, m_bloomUp, m_composite, m_copy;
+    Shader m_world, m_model, m_shadowWorld, m_shadowModel, m_sky, m_sprite, m_bloomDown, m_bloomUp, m_composite, m_final,
+        m_copy, m_ssao, m_ssaoBlur, m_shaftMask, m_shaftBlur, m_flareVis;
     GLuint m_emptyVao = 0;
     GLuint m_spriteVao = 0, m_spriteVbo = 0, m_spriteIbo = 0;
     static constexpr int kMaxSprites = 16384;
+    static constexpr int kMaxCascades = 4;
 
     GpuMesh m_worldMesh;
     std::vector<WorldChunk> m_chunks;
     AABB m_worldBounds;
     GLuint m_albedoArr = 0, m_normalArr = 0;
+    bool m_ownTextures = false;
+    bool m_worldHasSand = false;
+    int m_texQuality = -1, m_texAniso = -1;
     Environment m_env;
 
     RenderSettings m_rs;
     int m_outW = 0, m_outH = 0, m_w = 0, m_h = 0;
-    RenderTarget m_hdrMS, m_hdr, m_ldr, m_blurA, m_blurB, m_shadow;
+    RenderTarget m_hdrMS, m_hdr, m_post, m_ldr, m_blurA, m_blurB;
+    RenderTarget m_depth, m_ssaoA, m_ssaoB, m_shaftA, m_shaftB, m_flare;
     std::vector<RenderTarget> m_bloom;
-    mat4 m_shadowViewProj, m_shadowMat;
+    // Cascaded sun shadows: one depth texture array, one layer per cascade.
+    GLuint m_shadowTex = 0, m_shadowFbo = 0, m_sampCmp = 0, m_sampRaw = 0, m_black = 0;
+    int m_shadowSize = 0, m_cascades = 0, m_shadowQuality = 0;
+    mat4 m_cascadeVP[kMaxCascades], m_cascadeMat[kMaxCascades];
+    vec4 m_cascadeInfo[kMaxCascades];
+    bool m_shadowsReady = false, m_ssaoReady = false;
     bool m_shadowDirty = true;
     bool m_configured = false;
 };

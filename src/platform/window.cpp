@@ -44,7 +44,7 @@ bool Window::create(int w, int h, const char* title, bool fullscreen, bool visib
     glfwSetFramebufferSizeCallback(m_win, onFbSize);
     glfwSetWindowFocusCallback(m_win, onFocus);
     glfwGetFramebufferSize(m_win, &m_fbW, &m_fbH);
-    if (glfwRawMouseMotionSupported()) glfwSetInputMode(m_win, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    applyRawMouse();
     logInfo("OpenGL %s | %s", (const char*)glGetString(GL_VERSION), (const char*)glGetString(GL_RENDERER));
     return true;
 }
@@ -61,6 +61,10 @@ void Window::requestClose() { glfwSetWindowShouldClose(m_win, GLFW_TRUE); }
 void Window::beginFrame() {
     std::memcpy(input.prevKeys, input.keys, sizeof(input.keys));
     std::memcpy(input.prevMouse, input.mouse, sizeof(input.mouse));
+    std::memset(input.keyHit, 0, sizeof(input.keyHit));
+    std::memset(input.keyLift, 0, sizeof(input.keyLift));
+    std::memset(input.mouseHit, 0, sizeof(input.mouseHit));
+    std::memset(input.mouseLift, 0, sizeof(input.mouseLift));
     input.mouseDelta = {0, 0};
     input.scroll = 0;
     input.text.clear();
@@ -73,7 +77,23 @@ void Window::setCursorLocked(bool locked) {
     if (locked == m_locked) return;
     m_locked = locked;
     glfwSetInputMode(m_win, GLFW_CURSOR, locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    applyRawMouse();
     m_haveLast = false;
+}
+
+void Window::setRawMouse(bool on) {
+    m_rawWanted = on;
+    applyRawMouse();
+}
+
+bool Window::rawMouseSupported() const { return glfwRawMouseMotionSupported() == GLFW_TRUE; }
+
+void Window::applyRawMouse() {
+    if (!m_win || !glfwRawMouseMotionSupported()) return;
+    int want = m_rawWanted && m_locked ? GLFW_TRUE : GLFW_FALSE;
+    if (want == m_rawApplied) return;
+    glfwSetInputMode(m_win, GLFW_RAW_MOUSE_MOTION, want);
+    m_rawApplied = want;
 }
 
 void Window::setVsync(bool on) { glfwSwapInterval(on ? 1 : 0); }
@@ -97,13 +117,22 @@ double Window::time() const { return glfwGetTime(); }
 
 void Window::onKey(GLFWwindow* w, int key, int, int action, int) {
     if (key < 0 || key > GLFW_KEY_LAST) return;
-    if (action == GLFW_PRESS) self(w)->input.keys[key] = true;
-    else if (action == GLFW_RELEASE) self(w)->input.keys[key] = false;
+    Input& in = self(w)->input;
+    if (action == GLFW_PRESS) {
+        in.keys[key] = true;
+        in.keyHit[key] = true;
+    } else if (action == GLFW_RELEASE) {
+        in.keys[key] = false;
+        in.keyLift[key] = true;
+    }
 }
 
 void Window::onMouseButton(GLFWwindow* w, int button, int action, int) {
     if (button < 0 || button >= 8) return;
-    self(w)->input.mouse[button] = action == GLFW_PRESS;
+    Input& in = self(w)->input;
+    in.mouse[button] = action == GLFW_PRESS;
+    if (action == GLFW_PRESS) in.mouseHit[button] = true;
+    else in.mouseLift[button] = true;
 }
 
 void Window::onCursor(GLFWwindow* w, double x, double y) {

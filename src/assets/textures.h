@@ -28,6 +28,11 @@ struct MaterialInfo {
     int surface;
     float bump;
     vec3 avgAlbedo;  // linear, filled after generation (used by the light baker)
+    // Shader parameters.
+    float uvScale;   // texture repeats per 128 units
+    float antiTile;  // 1 = stochastic two-sample blending to hide repetition
+    float macro;     // strength of world-space colour/roughness variation
+    float grime;     // strength of dirt in corners and at the base of walls
 };
 
 MaterialInfo& materialInfo(int m);
@@ -39,3 +44,4 @@ struct WorldTextureSet {
 };
 
 void generateWorldTextures(WorldTextureSet& out, int size);
+int worldTextureSize(int quality);  // 0 low, 1 medium, 2 high

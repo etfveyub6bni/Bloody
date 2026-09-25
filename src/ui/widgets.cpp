@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "core/settings.h"
+
 float& widgetAnim(int id) {
     static std::unordered_map<int, float> anims;
     return anims[id];
@@ -62,43 +64,50 @@ void sectionTitle(UI& ui, Theme& th, float x, float y, const std::string& label)
     ui.text(*th.bold, label, x, y, 17 * th.s, colors::dim, ALIGN_LEFT, 2.5f * th.s);
 }
 
-bool slider(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, float& v, float mn, float mx, const char* fmt) {
-    float s = th.s, h = 44 * s;
+bool slider(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, float& v, float mn, float mx, const char* fmt, float h) {
+    float s = th.s;
+    if (h <= 0) h = 44 * s;
+    float cy = y + h * 0.5f;
     bool hot = ui.hover(x, y, w, h);
     trackHover(ui, id, hot);
-    ui.text(*th.regular, label, x, y + 4 * s, 20 * s, colors::text);
+    ui.text(*th.regular, label, x, cy - 10 * s, 20 * s, colors::text);
     char buf[32];
     std::snprintf(buf, sizeof(buf), fmt, v);
-    float bx = x + w * 0.5f, bw = w * 0.5f - 70 * s, by = y + 18 * s;
-    ui.text(*th.bold, buf, x + w, y + 4 * s, 20 * s, colors::accent, ALIGN_RIGHT);
-    if (ui.mousePressed && ui.hover(bx - 6 * s, y, bw + 12 * s, h)) ui.activeId = id;
+    float bx = x + w * 0.5f, bw = w * 0.5f - 76 * s;
+    ui.text(*th.bold, buf, x + w, cy - 10 * s, 20 * s, colors::accent, ALIGN_RIGHT);
+    if (ui.mousePressed && ui.hover(bx - 8 * s, y, bw + 16 * s, h)) ui.activeId = id;
     bool changed = false;
     if (ui.activeId == id) {
-        if (ui.mouseDown) {
+        // Also apply on release: at low FPS the last move and the release can arrive in the same frame.
+        if (ui.mouseDown || ui.mouseReleased) {
             float t = saturate((ui.mouse.x - bx) / bw);
             float nv = mn + (mx - mn) * t;
             if (nv != v) { v = nv; changed = true; }
-        } else {
-            ui.activeId = 0;
         }
+        if (!ui.mouseDown) ui.activeId = 0;
     }
     float t = saturate((v - mn) / (mx - mn));
-    ui.rect(bx, by, bw, 4 * s, rgba(255, 255, 255, 40), 2 * s);
-    ui.rect(bx, by, bw * t, 4 * s, colors::accent, 2 * s);
-    ui.circle(bx + bw * t, by + 2 * s, (hot || ui.activeId == id ? 9.0f : 7.0f) * s, colors::text);
+    bool active = ui.activeId == id;
+    ui.rect(bx, cy - 2 * s, bw, 4 * s, rgba(255, 255, 255, 40), 2 * s);
+    ui.rect(bx, cy - 2 * s, bw * t, 4 * s, colors::accent, 2 * s);
+    if (active) ui.circle(bx + bw * t, cy, 13 * s, withAlpha(colors::accent, 0.35f));
+    ui.circle(bx + bw * t, cy, (hot || active ? 9.0f : 7.0f) * s, colors::text);
     ui.rect(x, y + h - 1, w, 1, colors::line);
     return changed;
 }
 
-bool toggle(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, bool& v) {
-    float s = th.s, h = 44 * s;
+bool toggle(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, bool& v, float h) {
+    float s = th.s;
+    if (h <= 0) h = 44 * s;
+    float cy = y + h * 0.5f;
     bool hot = ui.hover(x, y, w, h);
     trackHover(ui, id, hot);
-    ui.text(*th.regular, label, x, y + 4 * s, 20 * s, colors::text);
+    ui.text(*th.regular, label, x, cy - 10 * s, 20 * s, colors::text);
     float& a = widgetAnim(id);
     a = approach(a, v ? 1.0f : 0.0f, th.dt * 8.0f);
-    float tw = 46 * s, thh = 24 * s, tx = x + w - tw, ty = y + 4 * s;
-    ui.rect(tx, ty, tw, thh, lerpColor(rgba(255, 255, 255, 40), colors::accent, a), thh * 0.5f);
+    float tw = 46 * s, thh = 24 * s, tx = x + w - tw, ty = cy - thh * 0.5f;
+    ui.text(*th.regular, v ? "Вкл." : "Выкл.", tx - 12 * s, cy - 9 * s, 18 * s, v ? colors::text : colors::dim, ALIGN_RIGHT);
+    ui.rect(tx, ty, tw, thh, lerpColor(rgba(255, 255, 255, hot ? 60 : 40), colors::accent, a), thh * 0.5f);
     ui.circle(tx + thh * 0.5f + (tw - thh) * a, ty + thh * 0.5f, thh * 0.38f, colors::text);
     ui.rect(x, y + h - 1, w, 1, colors::line);
     if (hot && ui.mouseReleased) {
@@ -109,24 +118,84 @@ bool toggle(UI& ui, Theme& th, int id, float x, float y, float w, const std::str
     return false;
 }
 
-bool selector(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, int& idx, const std::vector<std::string>& opts) {
-    float s = th.s, h = 44 * s;
+static void chevron(UI& ui, float cx, float cy, float sz, bool left, float t, uint32_t col) {
+    float d = left ? 1.0f : -1.0f;
+    ui.line(cx + d * sz * 0.5f, cy - sz, cx - d * sz * 0.5f, cy, t, col);
+    ui.line(cx - d * sz * 0.5f, cy, cx + d * sz * 0.5f, cy + sz, t, col);
+}
+
+bool selector(UI& ui, Theme& th, int id, float x, float y, float w, const std::string& label, int& idx, const std::vector<std::string>& opts, float h,
+              int skip) {
+    float s = th.s;
+    if (h <= 0) h = 44 * s;
+    float cy = y + h * 0.5f;
+    int n = (int)opts.size();
     bool hot = ui.hover(x, y, w, h);
     trackHover(ui, id, hot);
-    ui.text(*th.regular, label, x, y + 4 * s, 20 * s, colors::text);
-    float bw = w * 0.45f, bx = x + w - bw;
-    ui.text(*th.bold, opts[(size_t)std::max(0, std::min(idx, (int)opts.size() - 1))], bx + bw * 0.5f, y + 4 * s, 20 * s, colors::accent, ALIGN_CENTER);
-    bool changed = false;
+    ui.text(*th.regular, label, x, cy - 10 * s, 20 * s, colors::text);
+    float bw = w * 0.5f, bx = x + w - bw, aw = 32 * s;
+    int cur = std::max(0, std::min(idx, n - 1));
+    bool dots = n > 1 && n <= 8;
+    ui.text(*th.bold, opts[(size_t)cur], bx + bw * 0.5f, cy - (dots ? 13 : 10) * s, 20 * s, colors::accent, ALIGN_CENTER);
+    if (dots) {
+        float dx = bx + bw * 0.5f - (n - 1) * 5 * s;
+        for (int i = 0; i < n; i++)
+            ui.rect(dx + i * 10 * s - 3 * s, cy + 11 * s, 6 * s, 3 * s, i == cur ? colors::accent : rgba(255, 255, 255, 45), 1.5f * s);
+    }
+    int step = 0;
     for (int side = 0; side < 2; side++) {
-        float ax = side == 0 ? bx : bx + bw - 24 * s;
-        bool ah = ui.hover(ax, y, 24 * s, 32 * s);
-        ui.text(*th.bold, side == 0 ? "<" : ">", ax + 12 * s, y + 3 * s, 22 * s, ah ? colors::text : colors::dim, ALIGN_CENTER);
-        if (ah && ui.mouseReleased) {
-            idx = (idx + (side == 0 ? -1 : 1) + (int)opts.size()) % (int)opts.size();
-            changed = true;
-            ui.clickSound++;
+        float ax = side == 0 ? bx : bx + bw - aw;
+        bool ah = ui.hover(ax, cy - 16 * s, aw, 32 * s);
+        if (ah) ui.rect(ax, cy - 16 * s, aw, 32 * s, rgba(255, 255, 255, 22), 4 * s);
+        chevron(ui, ax + aw * 0.5f, cy, 6 * s, side == 0, 2.2f * s, ah || hot ? colors::text : colors::dim);
+        if (ah && ui.mouseReleased) step = side == 0 ? -1 : 1;
+    }
+    // Clicking the value itself advances, like the right arrow.
+    if (!step && ui.mouseReleased && ui.hover(bx + aw, y, bw - aw * 2, h)) step = 1;
+    bool changed = false;
+    if (step) {
+        int ni = cur;
+        for (int k = 0; k < n; k++) {
+            ni = (ni + step + n) % n;
+            if (ni != skip) break;
         }
+        changed = ni != idx;
+        idx = ni;
+        ui.clickSound++;
     }
     ui.rect(x, y + h - 1, w, 1, colors::line);
     return changed;
+}
+
+void valueRow(UI& ui, Theme& th, float x, float y, float w, const std::string& label, const std::string& value, uint32_t col, float h) {
+    float s = th.s;
+    if (h <= 0) h = 44 * s;
+    float cy = y + h * 0.5f;
+    ui.text(*th.regular, label, x, cy - 10 * s, 20 * s, colors::text);
+    ui.text(*th.bold, value, x + w, cy - 10 * s, 20 * s, col, ALIGN_RIGHT);
+    ui.rect(x, y + h - 1, w, 1, colors::line);
+}
+
+void drawCrosshairShape(UI& ui, const Settings& st, float cx, float cy, float sc, float extraGap) {
+    const CrosshairColor& cc = kCrosshairColors[std::max(0, std::min(st.chColor, 5))];
+    float alpha = saturate(st.chAlpha);
+    uint32_t col = rgba(cc.r, cc.g, cc.b, (int)(alpha * 255));
+    uint32_t out = rgba(0, 0, 0, (int)(alpha * 200));
+    float L = std::round(st.chSize * 2.2f * sc), T = std::max(1.0f, std::round(st.chThickness * 1.4f * sc));
+    float G = std::round((st.chGap + 4.0f) * sc + std::max(0.0f, extraGap));
+    cx = std::round(cx);
+    cy = std::round(cy);
+    float o = std::max(1.0f, std::round(sc));
+    auto bar = [&](float x, float y, float w, float h) {
+        if (st.chOutline) ui.rect(x - o, y - o, w + 2 * o, h + 2 * o, out);
+        ui.rect(x, y, w, h, col);
+    };
+    float ht = std::floor(T * 0.5f);
+    if (L > 0) {
+        bar(cx - G - L, cy - ht, L, T);
+        bar(cx + G, cy - ht, L, T);
+        if (!st.chTStyle) bar(cx - ht, cy - G - L, T, L);
+        bar(cx - ht, cy + G, T, L);
+    }
+    if (st.chDot) bar(cx - ht, cy - ht, T, T);
 }

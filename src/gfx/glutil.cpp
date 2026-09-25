@@ -141,7 +141,8 @@ GLuint makeTextureArray(int w, int h, int layers, GLenum internal, GLenum format
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    if (anisotropy > 1.0f) glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_ANISOTROPY, std::min(anisotropy, maxAnisotropy()));
+    if (anisotropy > 1.0f && maxAnisotropy() > 1.0f)
+        glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_ANISOTROPY, std::min(anisotropy, maxAnisotropy()));
     return t;
 }
 
@@ -164,8 +165,11 @@ bool RenderTarget::create(int w_, int h_, GLenum colorFormat_, bool withDepth, i
             glGenTextures(1, &color);
             glBindTexture(GL_TEXTURE_2D, color);
             GLenum fmt = GL_RGBA, type = GL_UNSIGNED_BYTE;
-            if (colorFormat == GL_RGBA16F || colorFormat == GL_R11F_G11F_B10F || colorFormat == GL_RGB16F) type = GL_FLOAT;
-            if (colorFormat == GL_R8) fmt = GL_RED;
+            if (colorFormat == GL_RGBA16F || colorFormat == GL_R11F_G11F_B10F || colorFormat == GL_RGB16F || colorFormat == GL_RG16F ||
+                colorFormat == GL_R16F)
+                type = GL_FLOAT;
+            if (colorFormat == GL_R8 || colorFormat == GL_R16F) fmt = GL_RED;
+            if (colorFormat == GL_RG16F) fmt = GL_RG;
             glTexImage2D(GL_TEXTURE_2D, 0, (GLint)colorFormat, w, h, 0, fmt, type, nullptr);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)filter);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)filter);
