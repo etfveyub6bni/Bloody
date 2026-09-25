@@ -7,7 +7,10 @@ enum AgentBone {
     AG_PELVIS = 0, AG_SPINE, AG_CHEST, AG_NECK, AG_HEAD,
     AG_UARM_L, AG_FARM_L, AG_HAND_L, AG_UARM_R, AG_FARM_R, AG_HAND_R,
     AG_THIGH_L, AG_CALF_L, AG_FOOT_L, AG_THIGH_R, AG_CALF_R, AG_FOOT_R,
-    AG_BONES
+    // 15 finger bones per hand in poseFingers() order (index, middle, ring, pinky, thumb; 3 phalanges each).
+    AG_FINGERS_L,
+    AG_FINGERS_R = AG_FINGERS_L + 15,
+    AG_BONES = AG_FINGERS_R + 15  // 47: must stay within the model shader's bone palette (48)
 };
 
 struct AgentModel {
@@ -20,6 +23,8 @@ struct AgentPose {
     Xform bones[AG_BONES];  // model space: feet at origin, facing +X
     Xform weapon;
     bool hasWeapon = false;
+    // Gait state carried between frames by animateAgent (a fresh pose starts a new cycle).
+    float gaitPhase = 0, gaitTime = -1;
 };
 
 struct AgentAnimInput {
