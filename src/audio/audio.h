@@ -17,6 +17,10 @@ enum SoundId {
     SND_COUNT
 };
 
+// Mixer groups with their own volume slider.
+enum SoundCategory { SC_WEAPONS, SC_WORLD, SC_UI, SC_MUSIC, SC_COUNT };
+int soundCategory(int id);
+
 class Audio {
 public:
     Audio();
@@ -28,6 +32,8 @@ public:
     void play3D(int id, vec3 pos, float volume = 1.0f, float pitch = 1.0f, float refDist = 180.0f);
     void setListener(vec3 pos, vec3 left);
     void setVolume(float master);
+    void setCategoryVolume(int category, float volume);
+    void setSpatial(bool headphones3D);
     void stopAll();
 
     struct Impl;

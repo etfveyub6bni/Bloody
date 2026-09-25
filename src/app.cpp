@@ -318,6 +318,11 @@ void App::applyVideoSettings() {
     if (!appliedValid) appliedFullscreen = win.fullscreen();
     appliedValid = true;
     audio.setVolume(settings.volume);
+    audio.setCategoryVolume(SC_WEAPONS, settings.volumeWeapons);
+    audio.setCategoryVolume(SC_WORLD, settings.volumeWorld);
+    audio.setCategoryVolume(SC_UI, settings.volumeUi);
+    audio.setCategoryVolume(SC_MUSIC, settings.volumeMusic);
+    audio.setSpatial(settings.spatialAudio);
 }
 
 static void uiInput(UI& ui, const Window& win, bool automation) {

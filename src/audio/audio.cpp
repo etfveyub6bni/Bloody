@@ -189,6 +189,8 @@ struct Audio::Impl {
     std::mutex mtx;
     vec3 lpos, lleft{0, 1, 0};
     float master = 0.8f;
+    float catVol[SC_COUNT] = {1, 1, 1, 1};
+    bool hrtf = true;
     bool ok = false;
 #if CS2P_AUDIO
     ma_device device;
@@ -350,7 +352,7 @@ void Audio::play(int id, float volume, float pitch) {
     *slot = Impl::Voice();
     slot->data = &m->buf[id];
     slot->pitch = pitch;
-    slot->vol = volume;
+    slot->vol = volume * m->catVol[soundCategory(id)];
     slot->active = true;
     m->computeGains(*slot);
 }
@@ -365,7 +367,7 @@ void Audio::play3D(int id, vec3 pos, float volume, float pitch, float ref) {
     *slot = Impl::Voice();
     slot->data = &m->buf[id];
     slot->pitch = pitch;
-    slot->vol = volume;
+    slot->vol = volume * m->catVol[soundCategory(id)];
     slot->spatial = true;
     slot->p = pos;
     slot->ref = ref;
@@ -383,6 +385,26 @@ void Audio::setListener(vec3 pos, vec3 left) {
 }
 
 void Audio::setVolume(float master) { m->master = master; }
+void Audio::setCategoryVolume(int category, float volume) {
+    if (category >= 0 && category < SC_COUNT) m->catVol[category] = volume;
+}
+void Audio::setSpatial(bool headphones3D) { m->hrtf = headphones3D; }
+
+int soundCategory(int id) {
+    switch (id) {
+        case SND_AK: case SND_M4: case SND_AWP: case SND_DEAGLE: case SND_GLOCK: case SND_USP:
+        case SND_KNIFE_SWING: case SND_KNIFE_HIT: case SND_KNIFE_STAB: case SND_EMPTY: case SND_RELOAD_OUT:
+        case SND_RELOAD_IN: case SND_BOLT: case SND_DEPLOY: case SND_ZOOM: case SND_EXPLOSION: case SND_SMOKE:
+        case SND_FLASH: case SND_BOUNCE: case SND_THROW: case SND_SHELL:
+            return SC_WEAPONS;
+        case SND_ROUND_START: case SND_ROUND_WIN: case SND_ROUND_LOSE:
+            return SC_MUSIC;
+        case SND_UI_HOVER: case SND_UI_CLICK: case SND_BUY: case SND_KILL:
+            return SC_UI;
+        default:
+            return SC_WORLD;
+    }
+}
 
 void Audio::stopAll() {
     std::lock_guard<std::mutex> lock(m->mtx);

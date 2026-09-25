@@ -2,6 +2,7 @@
 
 #include <cstddef>
 
+#include "gfx/model_shaders.h"
 #include "gfx/shaders.h"
 
 vec3 Environment::skyRadiance(vec3 d) const {
