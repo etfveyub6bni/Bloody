@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bloody Auth Panel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <main class="app-shell">
+        <section class="login-view" id="loginView">
+            <div class="brand-lock">
+                <span class="brand-mark"></span>
+                <span>Bloody Auth</span>
+            </div>
+            <div class="login-panel">
+                <span class="eyebrow">developer access</span>
+                <h1>Введите пароль</h1>
+                <form id="loginForm" class="login-form">
+                    <input id="passwordInput" type="password" autocomplete="current-password" placeholder="Пароль" aria-label="Пароль" required>
+                    <button class="primary-button" type="submit">Войти</button>
+                </form>
+                <p class="form-message" id="loginMessage" role="status" aria-live="polite"></p>
+            </div>
+        </section>
+
+        <section class="panel-view hidden" id="panelView">
+            <header class="topbar">
+                <div class="brand-lock">
+                    <span class="brand-mark"></span>
+                    <span>Bloody Auth</span>
+                </div>
+                <button class="ghost-button" id="logoutButton" type="button">Выйти</button>
+            </header>
+
+            <section class="dashboard">
+                <div class="dashboard-head">
+                    <div>
+                        <span class="eyebrow">server database</span>
+                        <h1>Панель разработчика</h1>
+                    </div>
+                    <div class="stat-card">
+                        <span>Активировано</span>
+                        <strong id="activatedCount">0</strong>
+                    </div>
+                </div>
+
+                <nav class="tabs" aria-label="Вкладки">
+                    <button class="tab active" data-tab="users" type="button">Пользователи</button>
+                    <button class="tab" data-tab="keys" type="button">Создание ключа</button>
+                </nav>
+
+                <p class="form-message" id="panelMessage" role="status" aria-live="polite"></p>
+
+                <section class="tab-page active" id="tab-users">
+                    <div class="list" id="usersList"></div>
+                </section>
+
+                <section class="tab-page" id="tab-keys">
+                    <div class="generator">
+                        <button class="primary-button" id="generateKeyButton" type="button">Сгенерировать ключ</button>
+                        <input id="generatedKey" type="text" readonly aria-label="Сгенерированный ключ" placeholder="Новый ключ появится здесь">
+                        <button class="ghost-button" id="copyKeyButton" type="button" disabled>Скопировать</button>
+                    </div>
+                    <div class="list" id="allKeysList"></div>
+                </section>
+            </section>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "bloody-netlify-panel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 3000 --bind 0.0.0.0 --directory public"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^9.1.2"
+  }
+}
