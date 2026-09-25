@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows (MSVC)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Upload game
+        uses: actions/upload-artifact@v7
+        with:
+          name: cs2proto-windows-x64
+          path: |
+            build/Release/cs2proto.exe
+            build/Release/assets/
+          if-no-files-found: error
+
+  linux:
+    name: Linux (GCC) + headless smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev \
+            xvfb xauth libgl1-mesa-dri
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build
+      # Renders the lobby and a simulated round with Mesa llvmpipe; fails if the game crashes or saves nothing.
+      - name: Smoke test
+        working-directory: build
+        run: |
+          xvfb-run -a -s "-screen 0 1280x720x24" ./cs2proto --shot lobby.png --scene lobby --size 1280x720
+          xvfb-run -a -s "-screen 0 1280x720x24" ./cs2proto --shot round.png --scene game --map dust --team t --weapon ak47 --sim 5 --size 1280x720
+          test -s lobby.png && test -s round.png
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-screenshots
+          path: build/*.png
+          if-no-files-found: ignore
